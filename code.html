@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="style.css">
+<title>Complete Top Up Website</title>
+</head>
+<body>
+<nav aria-label="Main Navigation">
+  <ul role="list">
+    <li id="nav-home" class="active" tabindex="0" role="tab" aria-selected="true" aria-controls="home">Home</li>
+    <li id="nav-topup" tabindex="0" role="tab" aria-selected="false" aria-controls="topup">Top Up</li>
+    <li id="nav-payment" tabindex="0" role="tab" aria-selected="false" aria-controls="payment">Payment</li>
+    <li id="nav-history" tabindex="0" role="tab" aria-selected="false" aria-controls="history">History</li>
+  </ul>
+</nav>
+
+<main>
+  <section id="home" class="container active" role="tabpanel" tabindex="0" aria-labelledby="nav-home">
+    <h1>Welcome to Top Up Service</h1>
+    <p>Your balance is displayed below. Use the menu to top up or check your transaction history.</p>
+    <div class="balance" aria-live="polite" aria-atomic="true" id="homeBalance">Balance: Rp 0</div>
+  </section>
+
+  <section id="topup" class="container" role="tabpanel" tabindex="0" aria-labelledby="nav-topup">
+    <h2>Top Up Form</h2>
+    <form id="topupForm" novalidate>
+      <label for="service">Select Service</label>
+      <select id="service" required aria-required="true" aria-describedby="serviceDesc">
+        <option value="" disabled selected>Select a service</option>
+        <option value="Game Credits">Game Credits</option>
+        <option value="Mobile Credit">Mobile Credit</option>
+        <option value="E-Wallet">E-Wallet</option>
+        <option value="Streaming Subscription">Streaming Subscription</option>
+      </select>
+      <div id="serviceDesc" class="visually-hidden">Choose the service you wish to top up</div>
+
+      <label for="userId">User ID / Phone Number</label>
+      <input type="text" id="userId" placeholder="Enter user ID or phone" pattern=".{3,}" title="Minimum 3 characters" required aria-required="true" />
+
+      <label for="amount">Select Amount</label>
+      <select id="amount" required aria-required="true" aria-describedby="amountDesc">
+        <option value="" disabled selected>Select amount</option>
+        <option value="10000">10,000</option>
+        <option value="25000">25,000</option>
+        <option value="50000">50,000</option>
+        <option value="100000">100,000</option>
+        <option value="200000">200,000</option>
+      </select>
+      <div id="amountDesc" class="visually-hidden">Choose the amount to top up</div>
+
+      <button type="submit" aria-label="Proceed to payment">Proceed to Payment</button>
+      <div id="topupError" class="error" style="display:none;"></div>
+    </form>
+  </section>
+
+  <section id="payment" class="container" role="tabpanel" tabindex="0" aria-labelledby="nav-payment" aria-live="polite" aria-atomic="true">
+    <h2>Payment Gateway</h2>
+    <p id="paymentSummary">Please complete the top up form before proceeding.</p>
+    <div id="paymentArea" style="display:none;">
+      <p><strong>Service:</strong> <span id="payService"></span></p>
+      <p><strong>User ID / Phone:</strong> <span id="payUserId"></span></p>
+      <p><strong>Amount to Pay:</strong> Rp <span id="payAmount"></span></p>
+
+      <h3>Select Payment Method</h3>
+      <div class="payment-methods" role="radiogroup" aria-label="Payment Methods">
+        <div class="payment-method" tabindex="0" role="radio" aria-checked="false" data-method="Credit Card">Credit Card</div>
+        <div class="payment-method" tabindex="0" role="radio" aria-checked="false" data-method="E-Wallet">E-Wallet</div>
+        <div class="payment-method" tabindex="0" role="radio" aria-checked="false" data-method="Bank Transfer">Bank Transfer</div>
+      </div>
+
+      <form id="paymentForm" style="margin-top:1.5rem; display:none;">
+        <!-- Dynamic payment fields -->
+      </form>
+
+      <button id="payNowBtn" disabled>Pay Now</button>
+      <div id="paymentError" class="error" style="display:none;"></div>
+      <div id="paymentConfirmation" class="confirmation" style="display:none;"></div>
+    </div>
+  </section>
+
+  <section id="history" class="container" role="tabpanel" tabindex="0" aria-labelledby="nav-history">
+    <h2>Transaction History</h2>
+    <div class="transaction-list" id="transactionList" aria-live="polite" aria-atomic="true">
+      <p style="font-style: italic; color: #ccc;">No transaction history yet.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+  // Utility to toggle tabs and sections
+  const navItems = document.querySelectorAll('nav ul li');
+  const sections = document.querySelectorAll('main section');
+
+  function activateTab(index) {
+    navItems.forEach((item, i) => {
+      const selected = i === index;
+      item.classList.toggle('active', selected);
+      item.setAttribute('aria-selected', selected);
+      sections[i].classList.toggle('active', selected);
+      if (selected) sections[i].focus();
+    });
+  }
+
+  navItems.forEach((item, index) => {
+    item.addEventListener('click', () => activateTab(index));
+    item.addEventListener('keydown', e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activateTab(index);
+      }
+    });
+  });
+
+  // Local storage keys and utilities
+  const BALANCE_KEY = 'topup_balance';
+  const TRANSACTIONS_KEY = 'topup_transactions';
+
+  function getBalance() {
+    return parseInt(localStorage.getItem(BALANCE_KEY) || '0', 10);
+  }
+
+  function setBalance(val) {
+    localStorage.setItem(BALANCE_KEY, val);
+  }
+
+  function getTransactions() {
+    const tx = localStorage.getItem(TRANSACTIONS_KEY);
+    return tx ? JSON.parse(tx) : [];
+  }
+
+  function addTransaction(tx) {
+    const txs = getTransactions();
+    txs.unshift(tx);
+    if (txs.length > 50) txs.splice(50);
+    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(txs));
+  }
+
+  // Rendering balance in Home
+  const homeBalance = document.getElementById('homeBalance');
+  function renderBalance() {
+    homeBalance.textContent = `Balance: Rp ${getBalance().toLocaleString('id-ID')}`;
+  }
+
+  // Render transaction history
+  const transactionList = document.getElementById('transactionList');
+  function renderTransactions() {
+    const txs = getTransactions();
+    if (!txs.length) {
+      transactionList.innerHTML = `<p style="font-style: italic; color: #ccc;">No transaction history yet.</p>`;
+      return;
+    }
+    transactionList.innerHTML = txs.map(t => {
+      const d = new Date(t.date);
+      const dateStr = d.toLocaleString('id-ID', {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+      return `
+        <div class="transaction-item" role="listitem">
+          <strong>${t.service}</strong> - Rp ${Number(t.amount).toLocaleString('id-ID')}<br/>
+          For: <em>${t.userId}</em><br/>
+          Paid via: <em>${t.method}</em><br/>
+          On: <small>${dateStr}</small>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderBalance();
+  renderTransactions();
+
+  // Handle Top Up form logic
+  const topupForm = document.getElementById('topupForm');
+  const topupError = document.getElementById('topupError');
+
+  let paymentData = null; // To store info to be passed to payment page
+
+  topupForm.addEventListener('submit', e => {
+    e.preventDefault();
+    topupError.style.display = 'none';
+
+    const service = document.getElementById('service').value;
+    const userId = document.getElementById('userId').value.trim();
+    const amountStr = document.getElementById('amount').value;
+
+    if (!service || !userId || !amountStr) {
+      topupError.textContent = 'Please fill in all fields.';
+      topupError.style.display = 'block';
+      return;
+    }
+    if (userId.length < 3) {
+      topupError.textContent = 'User ID / Phone number must be at least 3 characters.';
+      topupError.style.display = 'block';
+      return;
+    }
+    const amount = parseInt(amountStr, 10);
+    if (isNaN(amount) || amount <= 0) {
+      topupError.textContent = 'Invalid amount selected.';
+      topupError.style.display = 'block';
+      return;
+    }
+
+    // Save data for payment step
+    paymentData = { service, userId, amount, method: null };
+    // Switch to payment tab
+    activateTab(2);
+    initPaymentPage();
+  });
+
+  // Payment page logic
+  const paymentSummary = document.getElementById('paymentSummary');
+  const paymentArea = document.getElementById('paymentArea');
+  const payService = document.getElementById('payService');
+  const payUserId = document.getElementById('payUserId');
+  const payAmount = document.getElementById('payAmount');
+  const paymentMethods = document.querySelectorAll('.payment-method');
+  const paymentForm = document.getElementById('paymentForm');
+  const payNowBtn = document.getElementById('payNowBtn');
+  const paymentError = document.getElementById('paymentError');
+  const paymentConfirmation = document.getElementById('paymentConfirmation');
+
+  function initPaymentPage() {
+    if (!paymentData) {
+      paymentSummary.textContent = 'Please complete the top up form before proceeding.';
+      paymentArea.style.display = 'none';
+      return;
+    }
+    paymentSummary.textContent = '';
+    paymentArea.style.display = 'block';
+    payService.textContent = paymentData.service;
+    payUserId.textContent = paymentData.userId;
+    payAmount.textContent = paymentData.amount.toLocaleString('id-ID');
+    paymentError.style.display = 'none';
+    paymentConfirmation.style.display = 'none';
+    paymentForm.style.display = 'none';
+    payNowBtn.disabled = true;
+
+    paymentMethods.forEach(pm => {
+      pm.classList.remove('selected');
+      pm.setAttribute('aria-checked', 'false');
+      pm.tabIndex = 0;
+    });
+
+    paymentData.method = null;
+  }
+
+  // Handle payment method selection
+  paymentMethods.forEach(pm => {
+    pm.addEventListener('click', () => selectPaymentMethod(pm));
+    pm.addEventListener('keydown', e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectPaymentMethod(pm);
+      }
+    });
+  });
+
+  function selectPaymentMethod(selectedPm) {
+    paymentMethods.forEach(pm => {
+      pm.classList.remove('selected');
+      pm.setAttribute('aria-checked', 'false');
+      pm.tabIndex = 0;
+    });
+    selectedPm.classList.add('selected');
+    selectedPm.setAttribute('aria-checked', 'true');
+    selectedPm.tabIndex = -1;
+    paymentData.method = selectedPm.getAttribute('data-method');
+    renderPaymentForm(paymentData.method);
+    paymentError.style.display = 'none';
+    paymentConfirmation.style.display = 'none';
+    payNowBtn.disabled = false;
+  }
+
+  // Render dynamic payment form fields based on method
+  function renderPaymentForm(method) {
+    paymentForm.innerHTML = '';
+    paymentForm.style.display = 'block';
+    if(method === 'Credit Card') {
+      paymentForm.innerHTML = `
+        <label for="ccNumber">Card Number</label>
+        <input type="text" id="ccNumber" placeholder="1234 5678 9012 3456" required pattern="\\d{13,19}" title="Enter a valid card number" autocomplete="cc-number" />
+        <label for="ccName">Name on Card</label>
+        <input type="text" id="ccName" placeholder="John Doe" required />
+        <div style="display:flex; gap:1rem;">
+          <div style="flex-grow:1;">
+            <label for="ccExp">Expiry Date</label>
+            <input type="text" id="ccExp" placeholder="MM/YY" required pattern="^(0[1-9]|1[0-2])\\/\\d{2}$" title="Format MM/YY" />
+          </div>
+          <div style="flex-grow:1;">
+            <label for="ccCVV">CVV</label>
+            <input type="text" id="ccCVV" placeholder="123" required pattern="\\d{3,4}" title="3 or 4 digit code" />
+          </div>
+        </div>
+      `;
+    } else if(method === 'E-Wallet') {
+      paymentForm.innerHTML = `
+        <p>Scan QR code with your e-wallet app to pay.</p>
+        <img src="https://dummyimage.com/150x150/7c53c3/a78bfa&text=QR+Code" alt="QR Code placeholder" style="display:block; margin: 1rem auto; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.3);" />
+        <label for="ewalletId">E-Wallet Account ID</label>
+        <input type="text" id="ewalletId" placeholder="Enter your wallet ID" required />
+      `;
+    } else if(method === 'Bank Transfer') {
+      paymentForm.innerHTML = `
+        <p>Please transfer to the below bank account:</p>
+        <p><strong>Bank ABC</strong><br/>Account No: <strong>1234567890</strong><br/>Account Name: <strong>TopUp Service</strong></p>
+        <label for="btRef">Transfer Reference Number</label>
+        <input type="text" id="btRef" placeholder="Enter your transfer reference" required />
+      `;
+    } else {
+      paymentForm.style.display = 'none';
+    }
+  }
+
+  // Validate payment form fields before payment
+  function validatePaymentForm(method) {
+    if(!paymentForm.style.display || paymentForm.style.display === 'none') return true;
+    const inputs = paymentForm.querySelectorAll('input[required]');
+    for(let input of inputs) {
+      if(!input.value.trim()) {
+        paymentError.textContent = `Please fill in the ${input.previousElementSibling.textContent}.`;
+        paymentError.style.display = 'block';
+        input.focus();
+        return false;
+      }
+      // Check pattern validity
+      if(input.pattern) {
+        const re = new RegExp(input.pattern);
+        if(!re.test(input.value.trim())) {
+          paymentError.textContent = input.title || `Invalid input for ${input.previousElementSibling.textContent}.`;
+          paymentError.style.display = 'block';
+          input.focus();
+          return false;
+        }
+      }
+    }
+    paymentError.style.display = 'none';
+    return true;
+  }
+
+  // Handle payment submission
+  payNowBtn.addEventListener('click', () => {
+    paymentError.style.display = 'none';
+    paymentConfirmation.style.display = 'none';
+
+    if(!validatePaymentForm(paymentData.method)) return;
+
+    // Simulate payment processing delay
+    payNowBtn.disabled = true;
+    payNowBtn.textContent = 'Processing...';
+
+    setTimeout(() => {
+      // Simulate success/fail: 90% success rate
+      const success = Math.random() < 0.9;
+      if(success) {
+        completeTopUp();
+      } else {
+        paymentError.textContent = 'Payment failed. Please try again or use another payment method.';
+        paymentError.style.display = 'block';
+      }
+      payNowBtn.disabled = false;
+      payNowBtn.textContent = 'Pay Now';
+    }, 1800);
+  });
+
+  function completeTopUp() {
+    // Update balance
+    const currentBal = getBalance();
+    const newBal = currentBal + paymentData.amount;
+    setBalance(newBal);
+    renderBalance();
+
+    // Save transaction
+    const tx = {
+      date: new Date().toISOString(),
+      service: paymentData.service,
+      userId: paymentData.userId,
+      amount: paymentData.amount,
+      method: paymentData.method,
+    };
+    addTransaction(tx);
+    renderTransactions();
+
+    paymentConfirmation.innerHTML = `<p>🎉 Payment successful! Your account has been topped up with <strong>Rp ${paymentData.amount.toLocaleString('id-ID')}</strong> for <strong>${paymentData.service}</strong>.</p>`;
+    paymentConfirmation.style.display = 'block';
+    // Clear payment form and data
+    paymentForm.style.display = 'none';
+    payNowBtn.disabled = true;
+    paymentData = null;
+
+    // Optionally redirect to Home or History after a pause
+    setTimeout(() => {
+      activateTab(0);
+    }, 3500);
+  }
+
+  // Accessibility helper: visually-hidden class
+  const styleVisuallyHidden = document.createElement('style');
+  styleVisuallyHidden.textContent = `
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0 0 0 0) !important;
+      border: 0 !important;
+    }
+  `;
+  document.head.appendChild(styleVisuallyHidden);
+</script>
+</body>
+</html>
+
